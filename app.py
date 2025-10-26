@@ -14,8 +14,7 @@ CSV_FILE = "expenses.csv"
 def load_data():
     if os.path.exists(CSV_FILE):
         return pd.read_csv(CSV_FILE)
-    else:
-        return pd.DataFrame(columns=["category", "amount", "date"])
+    return pd.DataFrame(columns=["category", "amount", "date"])
 
 # Function to save data
 def save_data(df):
@@ -54,7 +53,11 @@ def main():
                     "amount": [amount],
                     "date": [date]
                 })
-                df = pd.concat([df, new_row], ignore_index=True)
+                # Handle empty DataFrame to avoid FutureWarning
+                if df.empty and df.columns.empty:
+                    df = new_row
+                else:
+                    df = pd.concat([df, new_row], ignore_index=True)
                 save_data(df)
                 st.success("Expense added successfully!")
                 st.rerun()
