@@ -1,4 +1,3 @@
-# !pip install streamlit
 import streamlit as st
 import pandas as pd
 import datetime
@@ -16,7 +15,6 @@ def load_data():
     if os.path.exists(CSV_FILE):
         return pd.read_csv(CSV_FILE)
     else:
-        # Create empty DataFrame with columns
         return pd.DataFrame(columns=["category", "amount", "date"])
 
 # Function to save data
@@ -137,7 +135,6 @@ def main():
             sorted_df = df.sort_values("date").reset_index(drop=True)
             st.dataframe(sorted_df, use_container_width=True)
             if st.button("Apply Sort"):
-                global df  # Note: In Streamlit, better to reload, but for simplicity
                 df = sorted_df
                 save_data(df)
                 st.success("Expenses sorted and saved!")
