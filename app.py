@@ -1,161 +1,407 @@
+# app.py
 import streamlit as st
 import pandas as pd
 import datetime
 import os
 
-# Page config
-st.set_page_config(page_title="Expense Tracker", page_icon="💰", layout="wide")
+st.set_page_config(page_title="Expense Tracker", page_icon="Money Bag", layout="wide")
 
-# File path for CSV
-CSV_FILE = "expenses.csv"
+CSV_FILE = "expenses.csv"          # <-- must be in the repo root
 
-# Function to load data
+# ------------------------------------------------------------------
+# 1. Load (and create if missing)
+# ------------------------------------------------------------------
 @st.cache_data
-def load_data():
-    if os.path.exists(CSV_FILE):
-        return pd.read_csv(CSV_FILE)
-    return pd.DataFrame(columns=["category", "amount", "date"])
+def load_data() -> pd.DataFrame:
+    if not os.path.exists(CSV_FILE):
+        # First run → create empty CSV with header
+        empty = pd.DataFrame(columns=["category", "amount", "date"])
+        empty.to_csv(CSV_FILE, index=False)
+        st.toast("Created empty expenses.csv")
+    return pd.read_csv(CSV_FILE)
 
-# Function to save data
-def save_data(df):
+# ------------------------------------------------------------------
+# 2. Save
+# ------------------------------------------------------------------
+def save_data(df: pd.DataFrame):
     df.to_csv(CSV_FILE, index=False)
 
-# Main app
+# ------------------------------------------------------------------
+# 3. Main UI
+# ------------------------------------------------------------------
 def main():
-    st.title("💰 Expense Tracker")
-    st.markdown("A simple web app to manage your expenses using CSV storage.")
+    st.title("Expense Tracker")
+    st.caption("Add, view, edit, delete – data lives in **expenses.csv**")
 
-    # Load data
     df = load_data()
+    st.write(f"**{len(df)}** expense(s) loaded from `{CSV_FILE}`")
 
-    # Sidebar for navigation
-    st.sidebar.title("Navigation")
-    menu = st.sidebar.selectbox("Choose action:", 
-                                ["Add Expense", "View Expenses", "Total Expenses", 
-                                 "Delete Expense", "Edit Expense", "Sum by Category", 
-                                 "Sort by Date", "Search by Category"])
+    # --------------------------------------------------------------
+    # Sidebar menu
+    # --------------------------------------------------------------
+    menu = st.sidebar.selectbox(
+        "Action",
+        [
+            "Add Expense", "View Expenses", "Total", "Delete",
+            "Edit", "Sum by Category", "Sort by Date", "Search"
+        ],
+    )
 
+    # ------------------------------------------------------------------
+    # ADD
+    # ------------------------------------------------------------------
     if menu == "Add Expense":
-        st.header("Add New Expense")
-        col1, col2 = st.columns(2)
-        with col1:
-            category = st.text_input("Category (e.g., Food, Travel):")
-        with col2:
-            amount = st.number_input("Amount ($):", min_value=0.01, step=0.01)
-        
-        date = datetime.date.today().strftime("%Y-%m-%d")  # Auto date
-        st.info(f"Date: {date} (auto-set)")
+        st.subheader("Add New Expense")
+        c1, c2 = st.columns(2)
+        with c1:
+            cat = st.text_input("Category")
+        with c2:
+            amt = st.number_input("Amount ($)", min_value=0.01, step=0.01)
 
-        if st.button("Add Expense"):
-            if category:
-                new_row = pd.DataFrame({
-                    "category": [category],
-                    "amount": [amount],
-                    "date": [date]
-                })
-                # Handle empty DataFrame to avoid FutureWarning
-                if df.empty and df.columns.empty:
-                    df = new_row
-                else:
-                    df = pd.concat([df, new_row], ignore_index=True)
-                save_data(df)
-                st.success("Expense added successfully!")
-                st.rerun()
+        today = datetime.date.today().strftime("%Y-%m-%d")
+        st.info(f"Date: **{today}** (auto)")
+
+        if st.button("Add"):
+            if not cat:
+                st.error("Category required")
             else:
-                st.error("Please enter a category.")
-
-    elif menu == "View Expenses":
-        st.header("All Expenses")
-        if not df.empty:
-            st.dataframe(df, use_container_width=True)
-        else:
-            st.info("No expenses recorded yet.")
-
-    elif menu == "Total Expenses":
-        st.header("Total Expenses")
-        if not df.empty:
-            total = df["amount"].sum()
-            st.metric("Total Amount", f"${total:.2f}")
-            col1, col2, col3 = st.columns(3)
-            col1.metric("Expenses Count", len(df))
-            col2.metric("Avg Amount", f"${df['amount'].mean():.2f}")
-            col3.metric("Max Expense", f"${df['amount'].max():.2f}")
-        else:
-            st.info("No expenses to calculate.")
-
-    elif menu == "Delete Expense":
-        st.header("Delete Expense")
-        if not df.empty:
-            st.dataframe(df, use_container_width=True)
-            index = st.number_input("Enter row number to delete (1-based):", 
-                                    min_value=1, max_value=len(df), step=1)
-            if st.button("Delete"):
-                df = df.drop(index - 1).reset_index(drop=True)
+                new = pd.DataFrame(
+                    {"category": [cat], "amount": [amt], "date": [today]}
+                )
+                # ---- avoid FutureWarning ----
+                global df
+                if df.empty:
+                    df = new
+                else:
+                    df = pd.concat([df, new], ignore_index=True)
                 save_data(df)
-                st.success("Expense deleted!")
+                st.success("Added!")
                 st.rerun()
-        else:
-            st.info("No expenses to delete.")
 
-    elif menu == "Edit Expense":
-        st.header("Edit Expense")
-        if not df.empty:
+    # ------------------------------------------------------------------
+    # VIEW
+    # ------------------------------------------------------------------
+    elif menu == "View Expenses":
+        st.subheader("All Expenses")
+        if df.empty:
+            st.info("Nothing yet – add an expense!")
+        else:
             st.dataframe(df, use_container_width=True)
-            index = st.number_input("Enter row number to edit (1-based):", 
-                                    min_value=1, max_value=len(df), step=1)
-            if index <= len(df):
-                row = df.iloc[index - 1]
-                col1, col2 = st.columns(2)
-                with col1:
-                    new_category = st.text_input("New Category:", value=str(row["category"]))
-                with col2:
-                    new_amount = st.number_input("New Amount ($):", value=float(row["amount"]), step=0.01)
-                new_date = st.date_input("New Date:", value=pd.to_datetime(row["date"]))
-                
-                if st.button("Update"):
-                    df.at[index - 1, "category"] = new_category
-                    df.at[index - 1, "amount"] = new_amount
-                    df.at[index - 1, "date"] = new_date.strftime("%Y-%m-%d")
-                    save_data(df)
-                    st.success("Expense updated!")
-                    st.rerun()
-        else:
-            st.info("No expenses to edit.")
 
+    # ------------------------------------------------------------------
+    # TOTAL
+    # ------------------------------------------------------------------
+    elif menu == "Total":
+        st.subheader("Summary")
+        if df.empty:
+            st.info("No data")
+        else:
+            total = df["amount"].sum()
+            st.metric("Total Spent", f"${total:,.2f}")
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Count", len(df))
+            c2.metric("Avg", f"${df['amount'].mean():.2f}")
+            c3.metric("Max", f"${df['amount'].max():.2f}")
+
+    # ------------------------------------------------------------------
+    # DELETE
+    # ------------------------------------------------------------------
+    elif menu == "Delete":
+        st.subheader("Delete Row")
+        if df.empty:
+            st.info("Nothing to delete")
+        else:
+            st.dataframe(df, use_container_width=True)
+            idx = st.number_input(
+                "Row # (1-based)", min_value=1, max_value=len(df), step=1
+            )
+            if st.button("Delete"):
+                df.drop(index=idx - 1, inplace=True)
+                df.reset_index(drop=True, inplace=True)
+                save_data(df)
+                st.success("Deleted")
+                st.rerun()
+
+    # ------------------------------------------------------------------
+    # EDIT
+    # ------------------------------------------------------------------
+    elif menu == "Edit":
+        st.subheader("Edit Row")
+        if df.empty:
+            st.info("Nothing to edit")
+        else:
+            st.dataframe(df, use_container_width=True)
+            idx = st.number_input(
+                "Row # (1-based)", min_value=1, max_value=len(df), step=1
+            )
+            row = df.iloc[idx - 1]
+            c1, c2 = st.columns(2)
+            with c1:
+                new_cat = st.text_input("Category", value=row["category"])
+            with c2:
+                new_amt = st.number_input(
+                    "Amount", value=float(row["amount"]), step=0.01
+                )
+            new_date = st.date_input("Date", value=pd.to_datetime(row["date"]))
+
+            if st.button("Update"):
+                df.at[idx - 1, "category"] = new_cat
+                df.at[idx - 1, "amount"] = new_amt
+                df.at[idx - 1, "date"] = new_date.strftime("%Y-%m-%d")
+                save_data(df)
+                st.success("Updated")
+                st.rerun()
+
+    # ------------------------------------------------------------------
+    # SUM BY CATEGORY
+    # ------------------------------------------------------------------
     elif menu == "Sum by Category":
-        st.header("Expenses by Category")
-        if not df.empty:
-            category_sums = df.groupby("category")["amount"].sum().reset_index()
-            st.dataframe(category_sums, use_container_width=True)
-            total = category_sums["amount"].sum()
-            st.metric("Grand Total", f"${total:.2f}")
+        st.subheader("By Category")
+        if df.empty:
+            st.info("No data")
         else:
-            st.info("No expenses.")
+            sums = (
+                df.groupby("category")["amount"]
+                .sum()
+                .reset_index()
+                .sort_values("amount", ascending=False)
+            )
+            st.dataframe(sums, use_container_width=True)
+            st.metric("Grand Total", f"${sums['amount'].sum():,.2f}")
 
+    # ------------------------------------------------------------------
+    # SORT BY DATE
+    # ------------------------------------------------------------------
     elif menu == "Sort by Date":
-        st.header("Sort Expenses by Date")
-        if not df.empty:
+        st.subheader("Sorted by Date")
+        if df.empty:
+            st.info("No data")
+        else:
             sorted_df = df.sort_values("date").reset_index(drop=True)
             st.dataframe(sorted_df, use_container_width=True)
-            if st.button("Apply Sort"):
+            if st.button("Save sorted order"):
                 df = sorted_df
                 save_data(df)
-                st.success("Expenses sorted and saved!")
+                st.success("Saved")
                 st.rerun()
-        else:
-            st.info("No expenses.")
 
-    elif menu == "Search by Category":
-        st.header("Search Expenses")
-        search_category = st.text_input("Enter category to search:")
-        if search_category:
-            filtered = df[df["category"].str.contains(search_category, case=False, na=False)]
-            if not filtered.empty:
-                st.dataframe(filtered, use_container_width=True)
+    # ------------------------------------------------------------------
+    # SEARCH
+    # ------------------------------------------------------------------
+    elif menu == "Search":
+        st.subheader("Search by Category")
+        term = st.text_input("Keyword (case-insensitive)")
+        if term:
+            hits = df[
+                df["category"].str.contains(term, case=False, na=False)
+            ]
+            if hits.empty:
+                st.info("No match")
             else:
-                st.info("No expenses found.")
+                st.dataframe(hits, use_container_width=True)
+
+if __name__ == "__main__":
+    main()# app.py
+import streamlit as st
+import pandas as pd
+import datetime
+import os
+
+st.set_page_config(page_title="Expense Tracker", page_icon="Money Bag", layout="wide")
+
+CSV_FILE = "expenses.csv"          # <-- must be in the repo root
+
+# ------------------------------------------------------------------
+# 1. Load (and create if missing)
+# ------------------------------------------------------------------
+@st.cache_data
+def load_data() -> pd.DataFrame:
+    if not os.path.exists(CSV_FILE):
+        # First run → create empty CSV with header
+        empty = pd.DataFrame(columns=["category", "amount", "date"])
+        empty.to_csv(CSV_FILE, index=False)
+        st.toast("Created empty expenses.csv")
+    return pd.read_csv(CSV_FILE)
+
+# ------------------------------------------------------------------
+# 2. Save
+# ------------------------------------------------------------------
+def save_data(df: pd.DataFrame):
+    df.to_csv(CSV_FILE, index=False)
+
+# ------------------------------------------------------------------
+# 3. Main UI
+# ------------------------------------------------------------------
+def main():
+    st.title("Expense Tracker")
+    st.caption("Add, view, edit, delete – data lives in **expenses.csv**")
+
+    df = load_data()
+    st.write(f"**{len(df)}** expense(s) loaded from `{CSV_FILE}`")
+
+    # --------------------------------------------------------------
+    # Sidebar menu
+    # --------------------------------------------------------------
+    menu = st.sidebar.selectbox(
+        "Action",
+        [
+            "Add Expense", "View Expenses", "Total", "Delete",
+            "Edit", "Sum by Category", "Sort by Date", "Search"
+        ],
+    )
+
+    # ------------------------------------------------------------------
+    # ADD
+    # ------------------------------------------------------------------
+    if menu == "Add Expense":
+        st.subheader("Add New Expense")
+        c1, c2 = st.columns(2)
+        with c1:
+            cat = st.text_input("Category")
+        with c2:
+            amt = st.number_input("Amount ($)", min_value=0.01, step=0.01)
+
+        today = datetime.date.today().strftime("%Y-%m-%d")
+        st.info(f"Date: **{today}** (auto)")
+
+        if st.button("Add"):
+            if not cat:
+                st.error("Category required")
+            else:
+                new = pd.DataFrame(
+                    {"category": [cat], "amount": [amt], "date": [today]}
+                )
+                # ---- avoid FutureWarning ----
+                global df
+                if df.empty:
+                    df = new
+                else:
+                    df = pd.concat([df, new], ignore_index=True)
+                save_data(df)
+                st.success("Added!")
+                st.rerun()
+
+    # ------------------------------------------------------------------
+    # VIEW
+    # ------------------------------------------------------------------
+    elif menu == "View Expenses":
+        st.subheader("All Expenses")
+        if df.empty:
+            st.info("Nothing yet – add an expense!")
         else:
-            st.info("Enter a category to search.")
+            st.dataframe(df, use_container_width=True)
+
+    # ------------------------------------------------------------------
+    # TOTAL
+    # ------------------------------------------------------------------
+    elif menu == "Total":
+        st.subheader("Summary")
+        if df.empty:
+            st.info("No data")
+        else:
+            total = df["amount"].sum()
+            st.metric("Total Spent", f"${total:,.2f}")
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Count", len(df))
+            c2.metric("Avg", f"${df['amount'].mean():.2f}")
+            c3.metric("Max", f"${df['amount'].max():.2f}")
+
+    # ------------------------------------------------------------------
+    # DELETE
+    # ------------------------------------------------------------------
+    elif menu == "Delete":
+        st.subheader("Delete Row")
+        if df.empty:
+            st.info("Nothing to delete")
+        else:
+            st.dataframe(df, use_container_width=True)
+            idx = st.number_input(
+                "Row # (1-based)", min_value=1, max_value=len(df), step=1
+            )
+            if st.button("Delete"):
+                df.drop(index=idx - 1, inplace=True)
+                df.reset_index(drop=True, inplace=True)
+                save_data(df)
+                st.success("Deleted")
+                st.rerun()
+
+    # ------------------------------------------------------------------
+    # EDIT
+    # ------------------------------------------------------------------
+    elif menu == "Edit":
+        st.subheader("Edit Row")
+        if df.empty:
+            st.info("Nothing to edit")
+        else:
+            st.dataframe(df, use_container_width=True)
+            idx = st.number_input(
+                "Row # (1-based)", min_value=1, max_value=len(df), step=1
+            )
+            row = df.iloc[idx - 1]
+            c1, c2 = st.columns(2)
+            with c1:
+                new_cat = st.text_input("Category", value=row["category"])
+            with c2:
+                new_amt = st.number_input(
+                    "Amount", value=float(row["amount"]), step=0.01
+                )
+            new_date = st.date_input("Date", value=pd.to_datetime(row["date"]))
+
+            if st.button("Update"):
+                df.at[idx - 1, "category"] = new_cat
+                df.at[idx - 1, "amount"] = new_amt
+                df.at[idx - 1, "date"] = new_date.strftime("%Y-%m-%d")
+                save_data(df)
+                st.success("Updated")
+                st.rerun()
+
+    # ------------------------------------------------------------------
+    # SUM BY CATEGORY
+    # ------------------------------------------------------------------
+    elif menu == "Sum by Category":
+        st.subheader("By Category")
+        if df.empty:
+            st.info("No data")
+        else:
+            sums = (
+                df.groupby("category")["amount"]
+                .sum()
+                .reset_index()
+                .sort_values("amount", ascending=False)
+            )
+            st.dataframe(sums, use_container_width=True)
+            st.metric("Grand Total", f"${sums['amount'].sum():,.2f}")
+
+    # ------------------------------------------------------------------
+    # SORT BY DATE
+    # ------------------------------------------------------------------
+    elif menu == "Sort by Date":
+        st.subheader("Sorted by Date")
+        if df.empty:
+            st.info("No data")
+        else:
+            sorted_df = df.sort_values("date").reset_index(drop=True)
+            st.dataframe(sorted_df, use_container_width=True)
+            if st.button("Save sorted order"):
+                df = sorted_df
+                save_data(df)
+                st.success("Saved")
+                st.rerun()
+
+    # ------------------------------------------------------------------
+    # SEARCH
+    # ------------------------------------------------------------------
+    elif menu == "Search":
+        st.subheader("Search by Category")
+        term = st.text_input("Keyword (case-insensitive)")
+        if term:
+            hits = df[
+                df["category"].str.contains(term, case=False, na=False)
+            ]
+            if hits.empty:
+                st.info("No match")
+            else:
+                st.dataframe(hits, use_container_width=True)
 
 if __name__ == "__main__":
     main()
