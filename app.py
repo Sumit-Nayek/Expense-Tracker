@@ -141,11 +141,12 @@
 #     else:
 #         st.info("Enter a term")
 # app.py
+# app.py
 import streamlit as st
 import pandas as pd
 import datetime
 import os
-import plotly.express as px
+import matplotlib.pyplot as plt
 
 st.set_page_config(page_title="Expense Tracker", page_icon="💰", layout="wide")
 
@@ -171,7 +172,7 @@ st.caption(f"{len(df)} expense(s) in `{CSV_FILE}`")
 
 menu = st.sidebar.selectbox("Action", [
     "Add Expense", "View", "Total", "Delete", "Edit",
-    "By Category", "Sort by Date", "Search", "Filter & Visualize"  # Added new option
+    "By Category", "Sort by Date", "Search", "Filter & Visualize"
 ])
 
 # ADD
@@ -284,7 +285,7 @@ elif menu == "Search":
     else:
         st.info("Enter a term")
 
-# NEW: FILTER & VISUALIZE
+# NEW: FILTER & VISUALIZE (Using Matplotlib)
 elif menu == "Filter & Visualize":
     st.subheader("📊 Filter & Visualize Expenses")
     
@@ -353,34 +354,48 @@ elif menu == "Filter & Visualize":
             with chart_col1:
                 st.write("#### Pie Chart - Expense Distribution")
                 if len(category_totals) > 1:
-                    # Create pie chart
-                    fig_pie = px.pie(
-                        category_totals, 
-                        values='amount', 
-                        names='category',
-                        title=f"Expense Distribution{' - ' + selected_category if selected_category and selected_category != 'All' else ''}",
-                        color_discrete_sequence=px.colors.qualitative.Set3
+                    # Create pie chart using Matplotlib
+                    fig, ax = plt.subplots(figsize=(8, 6))
+                    colors = plt.cm.Set3(range(len(category_totals)))
+                    wedges, texts, autotexts = ax.pie(
+                        category_totals['amount'], 
+                        labels=category_totals['category'],
+                        autopct='%1.1f%%',
+                        colors=colors,
+                        startangle=90
                     )
-                    fig_pie.update_traces(textposition='inside', textinfo='percent+label')
-                    st.plotly_chart(fig_pie, use_container_width=True)
+                    
+                    # Improve text appearance
+                    for autotext in autotexts:
+                        autotext.set_color('white')
+                        autotext.set_fontweight('bold')
+                    
+                    ax.set_title('Expense Distribution by Category', fontweight='bold')
+                    st.pyplot(fig)
                 else:
                     st.info("Need at least 2 categories for pie chart")
             
             with chart_col2:
                 st.write("#### Bar Chart - Category Comparison")
-                # Create bar chart
-                fig_bar = px.bar(
-                    category_totals,
-                    x='category',
-                    y='amount',
-                    title=f"Expenses by Category{' - ' + selected_category if selected_category and selected_category != 'All' else ''}",
-                    color='amount',
-                    color_continuous_scale='Blues'
-                )
-                fig_bar.update_layout(xaxis_title="Category", yaxis_title="Amount ($)")
-                st.plotly_chart(fig_bar, use_container_width=True)
+                # Create bar chart using Matplotlib
+                fig, ax = plt.subplots(figsize=(10, 6))
+                bars = ax.bar(category_totals['category'], category_totals['amount'], 
+                             color=plt.cm.Blues(range(len(category_totals))))
+                
+                # Add value labels on bars
+                for bar in bars:
+                    height = bar.get_height()
+                    ax.text(bar.get_x() + bar.get_width()/2., height + 0.1,
+                           f'${height:.2f}', ha='center', va='bottom', fontweight='bold')
+                
+                ax.set_xlabel('Categories')
+                ax.set_ylabel('Amount ($)')
+                ax.set_title('Expenses by Category', fontweight='bold')
+                plt.xticks(rotation=45)
+                plt.tight_layout()
+                st.pyplot(fig)
             
-            # Monthly trend chart (if we have date data)
+            # Monthly trend chart
             st.write("#### Monthly Trend")
             try:
                 filtered_df['date'] = pd.to_datetime(filtered_df['date'])
@@ -388,18 +403,19 @@ elif menu == "Filter & Visualize":
                 monthly_totals['date'] = monthly_totals['date'].astype(str)
                 
                 if len(monthly_totals) > 1:
-                    fig_line = px.line(
-                        monthly_totals,
-                        x='date',
-                        y='amount',
-                        title="Monthly Expense Trend",
-                        markers=True
-                    )
-                    fig_line.update_layout(xaxis_title="Month", yaxis_title="Amount ($)")
-                    st.plotly_chart(fig_line, use_container_width=True)
+                    fig, ax = plt.subplots(figsize=(10, 4))
+                    ax.plot(monthly_totals['date'], monthly_totals['amount'], 
+                           marker='o', linewidth=2, markersize=8)
+                    ax.set_xlabel('Month')
+                    ax.set_ylabel('Amount ($)')
+                    ax.set_title('Monthly Expense Trend', fontweight='bold')
+                    plt.xticks(rotation=45)
+                    plt.grid(True, alpha=0.3)
+                    plt.tight_layout()
+                    st.pyplot(fig)
                 else:
                     st.info("Need data across multiple months for trend analysis")
-            except:
+            except Exception as e:
                 st.info("Could not generate monthly trend chart")
         
         else:
