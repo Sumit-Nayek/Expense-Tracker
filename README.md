@@ -39,5 +39,4 @@ By separating concerns **data storage**, **business logic**, **UI/control flow**
 - Linear loops for aggregation (e.g., summing across all entries each time) may become inefficient when the dataset gets large (O(n) each time).  
 - Nested loops (e.g., for each category, loop each entry) can lead to O(n·m) complexity if both categories and entries are many—performance may degrade.  
 - The input validation logic may become complex if many edge-cases are supported, reducing readability.  
-- If the UI/control loop is blocking (e.g., waiting synchronously for user input), scalability or responsiveness may suffer in more advanced GUI/web versions.
 
