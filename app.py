@@ -94,14 +94,14 @@ elif menu == "View":
 elif menu == "Total":
     st.subheader("Expense Summary")
     if df.empty:
-        st.info("📊 No data available for summary")
+        st.info(" No data available for summary")
     else:
         total = df["amount"].sum()
         st.metric("💰 Total Expenses", f"₹{total:,.2f}")
         
         c1, c2, c3 = st.columns(3)
         c1.metric("📋 Count", len(df))
-        c2.metric("📊 Average", f"₹{df['amount'].mean():.2f}")
+        c2.metric(" Average", f"₹{df['amount'].mean():.2f}")
         c3.metric("📈 Maximum", f"₹{df['amount'].max():.2f}")
 
 # DELETE EXPENSE
@@ -178,7 +178,7 @@ elif menu == "Edit":
 elif menu == "By Category":
     st.subheader("Expenses by Category")
     if df.empty:
-        st.info("📊 No data available for category analysis")
+        st.info(" No data available for category analysis")
     else:
         category_sums = df.groupby("category")["amount"].sum().reset_index()
         category_sums = category_sums.sort_values("amount", ascending=False)
@@ -250,7 +250,7 @@ st.sidebar.info(
     "- Data is automatically saved to CSV file"
 )
 
-st.sidebar.markdown("### 📊 Data Status")
+st.sidebar.markdown("###  Data Status")
 if not df.empty:
     total_expenses = df['amount'].sum()
     st.sidebar.success(f"Total Expenses: ₹{total_expenses:,.2f}")
