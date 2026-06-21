@@ -299,9 +299,20 @@ CATEGORIES = ["Food", "Utilities", "Transport", "Entertainment", "Housing", "Oth
 
 # --- DATABASE CONTROLLER OPERATORS ---
 def init_db():
-    """Initializes multi-tenant tables for users, expenses, and budgets."""
+    """Initializes multi-tenant tables and auto-migrates old single-user schemas if detected."""
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
+    
+    # --- AUTO-MIGRATION CHECK ---
+    # Inspect the current columns in the expenses table if it exists
+    cursor.execute("PRAGMA table_info(expenses)")
+    existing_columns = [col[1] for col in cursor.fetchall()]
+    
+    # If the table exists but doesn't have 'user_id', drop the legacy structure
+    if existing_columns and "user_id" not in existing_columns:
+        cursor.execute("DROP TABLE IF EXISTS expenses")
+        cursor.execute("DROP TABLE IF EXISTS budgets")
+        conn.commit()
     
     # 1. Users Table Schema
     cursor.execute("""
