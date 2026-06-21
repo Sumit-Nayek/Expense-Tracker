@@ -266,20 +266,37 @@ from datetime import datetime
 # --- CONFIGURATION & VISUAL THEME ---
 st.set_page_config(page_title="FinTrack Pro", page_icon="💳", layout="wide")
 
-# Custom UI overrides for a clean, modern aesthetic
+# AUTOMATIC SYSTEM MODE: Leveraging native Streamlit CSS variables
 st.markdown("""
     <style>
-    .stMetric {
-        background-color: #f8f9fa;
-        padding: 15px 20px;
+    /* Target the metric card containers dynamically */
+    div[data-testid="stMetric"] {
+        background-color: var(--secondary-background-color) !important; 
+        padding: 20px;
         border-radius: 12px;
-        border: 1px solid #e5e7eb;
+        border: 1px solid rgba(128, 128, 128, 0.2) !important;
         box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);
     }
+    
+    /* Dynamically adapt the metric title text color */
+    div[data-testid="stMetricLabel"] > div {
+        color: var(--text-color) !important;
+        opacity: 0.7; /* Gives a clean, slightly muted look to the label */
+        font-size: 0.95rem !important;
+    }
+    
+    /* Dynamically adapt the primary numeric value color */
+    div[data-testid="stMetricValue"] > div {
+        color: var(--text-color) !important;
+        font-weight: 700 !important;
+    }
+    
+    /* Sidebar Form Styling adapts dynamically */
     div[data-testid="stForm"] {
-        border: 1px solid #e5e7eb;
+        border: 1px solid rgba(128, 128, 128, 0.2) !important;
         border-radius: 12px;
         padding: 20px;
+        background-color: var(--background-color) !important;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -301,7 +318,6 @@ def init_db():
         )
     """)
     
-    # Check if database is empty to seed initial visual records
     cursor.execute("SELECT COUNT(*) FROM expenses")
     if cursor.fetchone()[0] == 0:
         dummy_data = [
@@ -322,7 +338,6 @@ def load_data_from_db():
     df = pd.read_sql_query(query, conn)
     conn.close()
     
-    # Enforce precise data types for data processing engines
     if not df.empty:
         df['Date'] = pd.to_datetime(df['Date'])
         df['Amount'] = pd.to_numeric(df['Amount'])
@@ -349,7 +364,6 @@ with st.sidebar:
     st.title("➕ Add Transaction")
     st.markdown("Record a new dynamic expenditure entry below.")
     
-    # Using st.form keeps inputs isolated until submission
     with st.form("transaction_entry_form", clear_on_submit=True):
         input_amount = st.number_input("Amount ($)", min_value=0.01, step=0.01, format="%.2f")
         input_category = st.selectbox("Category Allocation", ["Food", "Utilities", "Transport", "Entertainment", "Housing", "Other"])
@@ -359,17 +373,9 @@ with st.sidebar:
         submit_btn = st.form_submit_button("Securely Record Entry")
         
         if submit_btn:
-            # Convert date object to plain standard ISO string format for SQLite compatibility
             formatted_date = input_date.strftime("%Y-%m-%d")
-            
-            # Write out to SQLite production environment
             insert_expense_to_db(formatted_date, input_category, input_amount, input_notes)
-            
-            # System notification response banner
             st.toast(f"Successfully recorded ${input_amount:.2f} to {input_category}!", icon="🚀")
-            
-            # CRITICAL: Forces Streamlit to instantly rerun script components, 
-            # ensuring immediate data fetching and seamless chart rendering updates.
             st.rerun()
 
 # --- MAIN REAL-TIME DASHBOARD CORE ---
@@ -377,7 +383,6 @@ st.title("📈 Real-Time Expense Analytics Dashboard")
 st.caption("Powered by an integrated SQLite storage matrix.")
 st.markdown("---")
 
-# Pull fresh, up-to-the-second state dataset from SQL rows
 runtime_df = load_data_from_db()
 
 # 1. CORE PERFORMANCE METRICS
@@ -391,7 +396,6 @@ with kpi_col1:
 with kpi_col2:
     st.metric(label="System Monthly Cap", value=f"${monthly_budget_ceiling:,.2f}")
 with kpi_col3:
-    # Color indicators reflect positive or deficit margins dynamically
     delta_indicator = f"${remaining_balance:,.2f} Left"
     st.metric(
         label="Liquid Allocation Runway", 
@@ -408,7 +412,6 @@ layout_left_panel, layout_right_panel = st.columns([1, 1])
 with layout_left_panel:
     st.subheader("📊 Category Distribution Vector")
     if not runtime_df.empty:
-        # Group variables to create high density donut charts
         grouped_df = runtime_df.groupby("Category")["Amount"].sum().reset_index()
         donut_chart = px.pie(
             grouped_df, 
@@ -417,9 +420,13 @@ with layout_left_panel:
             hole=0.45,
             color_discrete_sequence=px.colors.qualitative.Safe
         )
+        # Transparent chart backgrounds allow it to automatically adapt to light/dark themes
         donut_chart.update_layout(
             margin=dict(t=10, b=10, l=10, r=10),
-            legend=dict(orientation="h", yanchor="bottom", y=-0.1, xanchor="center", x=0.5)
+            legend=dict(orientation="h", yanchor="bottom", y=-0.1, xanchor="center", x=0.5),
+            paper_bgcolor='rgba(0,0,0,0)',
+            plot_bgcolor='rgba(0,0,0,0)',
+            font=dict(color="gray") # Multi-theme friendly text color for chart labels
         )
         st.plotly_chart(donut_chart, use_container_width=True)
     else:
@@ -428,7 +435,6 @@ with layout_left_panel:
 with layout_right_panel:
     st.subheader("📋 Relational Database Log View")
     if not runtime_df.empty:
-        # Sort values chronologically descending so new modifications flash right at the top
         sorted_display_df = runtime_df.sort_values(by="Date", ascending=False).copy()
         sorted_display_df['Date'] = sorted_display_df['Date'].dt.strftime('%Y-%m-%d')
         
