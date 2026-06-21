@@ -269,7 +269,6 @@ st.set_page_config(page_title="FinTrack Pro", page_icon="💳", layout="wide")
 # AUTOMATIC SYSTEM MODE: Leveraging native Streamlit CSS variables
 st.markdown("""
     <style>
-    /* Target the metric card containers dynamically */
     div[data-testid="stMetric"] {
         background-color: var(--secondary-background-color) !important; 
         padding: 20px;
@@ -277,21 +276,15 @@ st.markdown("""
         border: 1px solid rgba(128, 128, 128, 0.2) !important;
         box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);
     }
-    
-    /* Dynamically adapt the metric title text color */
     div[data-testid="stMetricLabel"] > div {
         color: var(--text-color) !important;
-        opacity: 0.7; /* Gives a clean, slightly muted look to the label */
+        opacity: 0.7;
         font-size: 0.95rem !important;
     }
-    
-    /* Dynamically adapt the primary numeric value color */
     div[data-testid="stMetricValue"] > div {
         color: var(--text-color) !important;
         font-weight: 700 !important;
     }
-    
-    /* Sidebar Form Styling adapts dynamically */
     div[data-testid="stForm"] {
         border: 1px solid rgba(128, 128, 128, 0.2) !important;
         border-radius: 12px;
@@ -302,12 +295,15 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 DB_FILE = "expenses.db"
+CATEGORIES = ["Food", "Utilities", "Transport", "Entertainment", "Housing", "Other"]
 
 # --- DATABASE CONTROLLER OPERATORS ---
 def init_db():
-    """Initializes the database and seeds it with baseline data if empty."""
+    """Initializes the structural tables for expenses and budgets, seeding defaults if blank."""
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
+    
+    # Expense Table Schema
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS expenses (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -318,26 +314,46 @@ def init_db():
         )
     """)
     
+    # Budget Table Schema
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS budgets (
+            category TEXT PRIMARY KEY,
+            limit_amount REAL NOT NULL
+        )
+    """)
+    
+    # Seed default expense items if table is brand new
     cursor.execute("SELECT COUNT(*) FROM expenses")
     if cursor.fetchone()[0] == 0:
-        dummy_data = [
+        dummy_expenses = [
             ("2026-06-01", "Food", 120.50, "Weekly Groceries"),
             ("2026-06-05", "Utilities", 85.00, "Electric Bill"),
             ("2026-06-12", "Transport", 45.00, "Fuel refill"),
             ("2026-06-18", "Entertainment", 65.00, "Streaming & Movies"),
             ("2026-06-20", "Housing", 400.00, "Partial Rent Component")
         ]
-        cursor.executemany("INSERT INTO expenses (date, category, amount, notes) VALUES (?, ?, ?, ?)", dummy_data)
-        conn.commit()
+        cursor.executemany("INSERT INTO expenses (date, category, amount, notes) VALUES (?, ?, ?, ?)", dummy_expenses)
+    
+    # Seed default baseline budget ceilings if empty
+    cursor.execute("SELECT COUNT(*) FROM budgets")
+    if cursor.fetchone()[0] == 0:
+        default_budgets = [
+            ("Food", 300.00),
+            ("Utilities", 150.00),
+            ("Transport", 100.00),
+            ("Entertainment", 150.00),
+            ("Housing", 600.00),
+            ("Other", 200.00)
+        ]
+        cursor.executemany("INSERT INTO budgets (category, limit_amount) VALUES (?, ?)", default_budgets)
+        
+    conn.commit()
     conn.close()
 
 def load_data_from_db():
-    """Fetches records from SQLite database and formats them into a DataFrame."""
     conn = sqlite3.connect(DB_FILE)
-    query = "SELECT date AS Date, category AS Category, amount AS Amount, notes AS Notes FROM expenses"
-    df = pd.read_sql_query(query, conn)
+    df = pd.read_sql_query("SELECT date AS Date, category AS Category, amount AS Amount, notes AS Notes FROM expenses", conn)
     conn.close()
-    
     if not df.empty:
         df['Date'] = pd.to_datetime(df['Date'])
         df['Amount'] = pd.to_numeric(df['Amount'])
@@ -345,68 +361,126 @@ def load_data_from_db():
         df = pd.DataFrame(columns=["Date", "Category", "Amount", "Notes"])
     return df
 
-def insert_expense_to_db(date_str, cat, amt, note_str):
-    """Safely commits a single transaction log entry into the database table."""
+def load_budgets_from_db():
+    conn = sqlite3.connect(DB_FILE)
+    df = pd.read_sql_query("SELECT category, limit_amount FROM budgets", conn)
+    conn.close()
+    return dict(zip(df['category'], df['limit_amount']))
+
+def update_budget_in_db(cat, amt):
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
-    cursor.execute(
-        "INSERT INTO expenses (date, category, amount, notes) VALUES (?, ?, ?, ?)",
-        (date_str, cat, amt, note_str)
-    )
+    cursor.execute("INSERT OR REPLACE INTO budgets (category, limit_amount) VALUES (?, ?)", (cat, amt))
     conn.commit()
     conn.close()
 
-# Initialize database schema components
+def insert_expense_to_db(date_str, cat, amt, note_str):
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("INSERT INTO expenses (date, category, amount, notes) VALUES (?, ?, ?, ?)", (date_str, cat, amt, note_str))
+    conn.commit()
+    conn.close()
+
+# Initialize data schemas
 init_db()
 
-# --- SIDEBAR: TRANSACTION CONTROLLER ---
+# Fetch active application matrices
+runtime_df = load_data_from_db()
+budget_map = load_budgets_from_db()
+
+# --- SIDEBAR: CONTROLS & MANAGEMENT ---
 with st.sidebar:
     st.title("➕ Add Transaction")
-    st.markdown("Record a new dynamic expenditure entry below.")
     
     with st.form("transaction_entry_form", clear_on_submit=True):
         input_amount = st.number_input("Amount ($)", min_value=0.01, step=0.01, format="%.2f")
-        input_category = st.selectbox("Category Allocation", ["Food", "Utilities", "Transport", "Entertainment", "Housing", "Other"])
+        input_category = st.selectbox("Category Allocation", CATEGORIES)
         input_date = st.date_input("Transaction Date", datetime.now())
-        input_notes = st.text_input("Memo / Description", placeholder="e.g., Walmart run")
+        input_notes = st.text_input("Memo / Description", placeholder="e.g., Target run")
         
         submit_btn = st.form_submit_button("Securely Record Entry")
         
         if submit_btn:
             formatted_date = input_date.strftime("%Y-%m-%d")
+            
+            # 🚨 BUDGET WARNING CHECK CALCULATION 🚨
+            current_cat_total = runtime_df[runtime_df["Category"] == input_category]["Amount"].sum() if not runtime_df.empty else 0.0
+            new_cat_total = current_cat_total + input_amount
+            cat_ceiling = budget_map.get(input_category, 500.00)
+            usage_ratio = new_cat_total / cat_ceiling
+            
+            # Cache flag status into Session State before triggering rerun sequence
+            if usage_ratio >= 1.0:
+                st.session_state.budget_alert = {
+                    "type": "error",
+                    "msg": f"❌ **Critical Budget Overrun!** Total spending in **{input_category}** has hit **${new_cat_total:,.2f}**, completely blowing past your cap of **${cat_ceiling:,.2f}**!"
+                }
+            elif usage_ratio >= 0.85:
+                st.session_state.budget_alert = {
+                    "type": "warning",
+                    "msg": f"⚠️ **Budget Warning Flag!** New transaction pushes **{input_category}** to **{usage_ratio*100:.1f}%** of its limit (${new_cat_total:,.2f} / ${cat_ceiling:,.2f})."
+                }
+            else:
+                # Clear existing warning tokens if item falls within clean thresholds
+                st.session_state.budget_alert = None
+
+            # Execute database insertion and refresh layout space
             insert_expense_to_db(formatted_date, input_category, input_amount, input_notes)
-            st.toast(f"Successfully recorded ${input_amount:.2f} to {input_category}!", icon="🚀")
+            st.toast("Transaction logged successfully!", icon="🚀")
             st.rerun()
+
+    # Expandable Budget Customizer Drawer
+    st.markdown("---")
+    with st.expander("🎯 Edit Category Budgets"):
+        st.caption("Adjust your thresholds down below to reshape metric targets.")
+        for cat in CATEGORIES:
+            current_val = budget_map.get(cat, 200.0)
+            new_val = st.number_input(f"{cat} Limit ($)", min_value=1.0, value=float(current_val), step=10.0, key=f"adj_{cat}")
+            if new_val != current_val:
+                update_budget_in_db(cat, new_val)
+                st.rerun()
 
 # --- MAIN REAL-TIME DASHBOARD CORE ---
 st.title("📈 Real-Time Expense Analytics Dashboard")
-st.caption("Powered by an integrated SQLite storage matrix.")
+st.caption("System automated dark/light adapting UI framework.")
+
+# 🚨 RENDER ACTIVE WARNING FLAGS FROM SESSION STATE 🚨
+if "budget_alert" in st.session_state and st.session_state.budget_alert is not None:
+    alert = st.session_state.budget_alert
+    if alert["type"] == "error":
+        st.error(alert["msg"], icon="🚨")
+    else:
+        st.warning(alert["msg"], icon="⚠️")
+    
+    # Dismiss button to wipe out warning banner if acknowledged
+    if st.button("Clear Alert Notification Banner"):
+        st.session_state.budget_alert = None
+        st.rerun()
+
 st.markdown("---")
 
-runtime_df = load_data_from_db()
-
-# 1. CORE PERFORMANCE METRICS
-monthly_budget_ceiling = 1200.00
+# 1. INTEGRATED PERFORMANCE METRICS
+monthly_budget_ceiling = sum(budget_map.values())
 total_outflow = runtime_df["Amount"].sum() if not runtime_df.empty else 0.00
 remaining_balance = monthly_budget_ceiling - total_outflow
 
 kpi_col1, kpi_col2, kpi_col3 = st.columns(3)
 with kpi_col1:
-    st.metric(label="Total Aggregate Outflow", value=f"${total_outflow:,.2f}")
+    st.metric(label="Total Combined Outflow", value=f"${total_outflow:,.2f}")
 with kpi_col2:
-    st.metric(label="System Monthly Cap", value=f"${monthly_budget_ceiling:,.2f}")
+    st.metric(label="Total Aggregated Target Budget", value=f"${monthly_budget_ceiling:,.2f}")
 with kpi_col3:
     delta_indicator = f"${remaining_balance:,.2f} Left"
     st.metric(
-        label="Liquid Allocation Runway", 
+        label="Liquid Runway Balance", 
         value=delta_indicator,
-        delta="Safe Zone" if remaining_balance >= 0 else "Budget Ceiling Overrun",
+        delta="Safe Zone" if remaining_balance >= 0 else "System Deficit",
         delta_color="normal" if remaining_balance >= 0 else "inverse"
     )
 
 st.markdown("<br>", unsafe_allow_html=True)
 
-# 2. DYNAMIC WORKSPACE SPLIT (Charts & Tables)
+# 2. VISUAL PANEL MATRIX SPLIT
 layout_left_panel, layout_right_panel = st.columns([1, 1])
 
 with layout_left_panel:
@@ -420,17 +494,16 @@ with layout_left_panel:
             hole=0.45,
             color_discrete_sequence=px.colors.qualitative.Safe
         )
-        # Transparent chart backgrounds allow it to automatically adapt to light/dark themes
         donut_chart.update_layout(
             margin=dict(t=10, b=10, l=10, r=10),
             legend=dict(orientation="h", yanchor="bottom", y=-0.1, xanchor="center", x=0.5),
             paper_bgcolor='rgba(0,0,0,0)',
             plot_bgcolor='rgba(0,0,0,0)',
-            font=dict(color="gray") # Multi-theme friendly text color for chart labels
+            font=dict(color="gray")
         )
         st.plotly_chart(donut_chart, use_container_width=True)
     else:
-        st.info("No transaction matrices populated. Add entries via sidebar to view graphics.")
+        st.info("No transaction data populated yet.")
 
 with layout_right_panel:
     st.subheader("📋 Relational Database Log View")
@@ -450,4 +523,4 @@ with layout_right_panel:
             height=340
         )
     else:
-        st.info("The SQLite expense schema currently holds zero structural logs.")
+        st.info("The SQLite expense schema holds zero structural records.")
