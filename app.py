@@ -293,25 +293,19 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# FIX: Bumping the file version bypasses the active file lock on Streamlit Cloud
 DB_FILE = "expenses_v2.db"
 CATEGORIES = ["Food", "Utilities", "Transport", "Entertainment", "Housing", "Other"]
 
 # --- DATABASE CONTROLLER OPERATORS ---
 def init_db():
-    """Initializes multi-tenant tables natively on the fresh database version."""
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
-    
-    # 1. Users Table Schema
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             username TEXT UNIQUE NOT NULL
         )
     """)
-    
-    # 2. Expenses Table Schema
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS expenses (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -323,8 +317,6 @@ def init_db():
             FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
         )
     """)
-    
-    # 3. Budget Table Schema
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS budgets (
             user_id INTEGER NOT NULL,
@@ -335,7 +327,6 @@ def init_db():
         )
     """)
     
-    # Seed baseline user profile if database is entirely empty
     cursor.execute("SELECT COUNT(*) FROM users")
     if cursor.fetchone()[0] == 0:
         cursor.execute("INSERT INTO users (username) VALUES (?)", ("Primary Account",))
@@ -377,14 +368,15 @@ def create_new_user(username):
 
 def load_user_expenses(user_id):
     conn = sqlite3.connect(DB_FILE)
-    query = "SELECT date AS Date, category AS Category, amount AS Amount, notes AS Notes FROM expenses WHERE user_id = ?"
+    # Crucial change: pulling the actual DB record ID to facilitate deletion mapping
+    query = "SELECT id, date AS Date, category AS Category, amount AS Amount, notes AS Notes FROM expenses WHERE user_id = ?"
     df = pd.read_sql_query(query, conn, params=(user_id,))
     conn.close()
     if not df.empty:
         df['Date'] = pd.to_datetime(df['Date'])
         df['Amount'] = pd.to_numeric(df['Amount'])
     else:
-        df = pd.DataFrame(columns=["Date", "Category", "Amount", "Notes"])
+        df = pd.DataFrame(columns=["id", "Date", "Category", "Amount", "Notes"])
     return df
 
 def load_user_budgets(user_id):
@@ -407,10 +399,18 @@ def insert_expense_to_db(user_id, date_str, cat, amt, note_str):
     conn.commit()
     conn.close()
 
-# Start application lifecycle
+def delete_expense_from_db(expense_id):
+    """Removes an operational transaction record permanently by unique system ID."""
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM expenses WHERE id = ?", (expense_id,))
+    conn.commit()
+    conn.close()
+
+# Start application lifecycle database verification
 init_db()
 
-# --- SIDEBAR: USER AUTHENTICATION ROUTER ---
+# --- SIDEBAR: OPERATIONAL WORKSPACE CONTROL ---
 with st.sidebar:
     st.title("👤 Account Workspace")
     
@@ -472,6 +472,21 @@ with st.sidebar:
             st.toast("Transaction logged successfully!", icon="🚀")
             st.rerun()
 
+    # Handy New Feature Integration: Interactive Delete/Void Entry Panel
+    if not user_df.empty:
+        st.markdown("---")
+        with st.expander("🗑️ Void / Delete Transaction"):
+            # Format selection label dynamically for quick visual picking
+            user_df['Selector_Text'] = user_df['Date'].dt.strftime('%m-%d') + " | " + user_df['Category'] + " | $" + user_df['Amount'].astype(str)
+            delete_target = st.selectbox("Select Target Entry", options=user_df['Selector_Text'].tolist())
+            
+            target_id = user_df[user_df['Selector_Text'] == delete_target]['id'].values[0]
+            
+            if st.button("Permanently Delete Entry", type="primary"):
+                delete_expense_from_db(target_id)
+                st.toast("Transaction erased from registry.", icon="🗑️")
+                st.rerun()
+
     with st.expander("🎯 Customize Profile Budgets"):
         st.caption(f"Manage threshold caps for user: **{selected_username}**")
         for cat in CATEGORIES:
@@ -498,7 +513,7 @@ if "budget_alert" in st.session_state and st.session_state.budget_alert is not N
 
 st.markdown("---")
 
-# 1. METRICS PRESENTATION
+# 1. METRICS PRESENTATION PANEL
 monthly_budget_ceiling = sum(user_budgets.values())
 total_outflow = user_df["Amount"].sum() if not user_df.empty else 0.00
 remaining_balance = monthly_budget_ceiling - total_outflow
@@ -519,26 +534,35 @@ with kpi_col3:
 
 st.markdown("<br>", unsafe_allow_html=True)
 
-# 2. DATA PANELS
+# 2. DUAL INTERACTIVE VISUAL DISPLAY PANELS
 layout_left_panel, layout_right_panel = st.columns([1, 1])
 
 with layout_left_panel:
     st.subheader("📊 Category Distribution Vector")
     if not user_df.empty:
         grouped_df = user_df.groupby("Category")["Amount"].sum().reset_index()
+        
+        # Donut Visual construction
         donut_chart = px.pie(
             grouped_df, 
             values='Amount', 
             names='Category', 
-            hole=0.45,
+            hole=0.48,
             color_discrete_sequence=px.colors.qualitative.Safe
         )
+        
+        # FIX: Explicitly forcing text visibility parameters to display categories directly
+        donut_chart.update_traces(
+            textinfo='label+percent', 
+            textposition='outside', # Renders data indicators cleanly outside slices
+            insidetextorientation='radial'
+        )
+        
         donut_chart.update_layout(
-            margin=dict(t=10, b=10, l=10, r=10),
-            legend=dict(orientation="h", yanchor="bottom", y=-0.1, xanchor="center", x=0.5),
+            margin=dict(t=30, b=30, l=30, r=30),
+            showlegend=False, # Removed standard box legend as values map directly to lines now
             paper_bgcolor='rgba(0,0,0,0)',
-            plot_bgcolor='rgba(0,0,0,0)',
-            font=dict(color="gray")
+            plot_bgcolor='rgba(0,0,0,0)'
         )
         st.plotly_chart(donut_chart, use_container_width=True)
     else:
@@ -547,7 +571,9 @@ with layout_left_panel:
 with layout_right_panel:
     st.subheader("📋 Relational Database Log View")
     if not user_df.empty:
-        sorted_display_df = user_df.sort_values(by="Date", ascending=False).copy()
+        # Hide internal engine row IDs from front-end sheet grid layout presentation
+        display_clean_df = user_df.drop(columns=['id', 'Selector_Text'], errors='ignore')
+        sorted_display_df = display_clean_df.sort_values(by="Date", ascending=False).copy()
         sorted_display_df['Date'] = sorted_display_df['Date'].dt.strftime('%Y-%m-%d')
         
         st.dataframe(
@@ -559,7 +585,17 @@ with layout_right_panel:
             },
             use_container_width=True,
             hide_index=True,
-            height=340
+            height=280
+        )
+        
+        # Handy New Feature Integration: One-Click Data Portability Export Engine
+        csv_data = sorted_display_df.to_csv(index=False).encode('utf-8')
+        st.download_button(
+            label="📥 Export Current Ledger to CSV File",
+            data=csv_data,
+            file_name=f"fintrack_ledger_{selected_username}.csv",
+            mime="text/csv",
+            use_container_width=True
         )
     else:
         st.info("The SQLite data partition holds zero ledger entries for this profile.")
