@@ -260,101 +260,188 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+import sqlite3
 from datetime import datetime
 
-# --- CONFIGURATION & THEMING ---
-st.set_page_config(page_title="FinTrack Alpha", page_icon="💰", layout="wide")
+# --- CONFIGURATION & VISUAL THEME ---
+st.set_page_config(page_title="FinTrack Pro", page_icon="💳", layout="wide")
 
-# Custom CSS for custom card styling (Glassmorphism look)
+# Custom UI overrides for a clean, modern aesthetic
 st.markdown("""
     <style>
-    .metric-card {
+    .stMetric {
         background-color: #f8f9fa;
+        padding: 15px 20px;
+        border-radius: 12px;
+        border: 1px solid #e5e7eb;
+        box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);
+    }
+    div[data-testid="stForm"] {
+        border: 1px solid #e5e7eb;
+        border-radius: 12px;
         padding: 20px;
-        border-radius: 10px;
-        border-left: 5px solid #4f46e5;
-        box-shadow: 2px 2px 10px rgba(0,0,0,0.05);
     }
     </style>
 """, unsafe_allow_html=True)
 
-# --- DATA CONTROLLER (Simulated DB/CSV) ---
-def load_data():
-    try:
-        df = pd.read_csv("expenses.csv")
+DB_FILE = "expenses.db"
+
+# --- DATABASE CONTROLLER OPERATORS ---
+def init_db():
+    """Initializes the database and seeds it with baseline data if empty."""
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS expenses (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            date TEXT NOT NULL,
+            category TEXT NOT NULL,
+            amount REAL NOT NULL,
+            notes TEXT
+        )
+    """)
+    
+    # Check if database is empty to seed initial visual records
+    cursor.execute("SELECT COUNT(*) FROM expenses")
+    if cursor.fetchone()[0] == 0:
+        dummy_data = [
+            ("2026-06-01", "Food", 120.50, "Weekly Groceries"),
+            ("2026-06-05", "Utilities", 85.00, "Electric Bill"),
+            ("2026-06-12", "Transport", 45.00, "Fuel refill"),
+            ("2026-06-18", "Entertainment", 65.00, "Streaming & Movies"),
+            ("2026-06-20", "Housing", 400.00, "Partial Rent Component")
+        ]
+        cursor.executemany("INSERT INTO expenses (date, category, amount, notes) VALUES (?, ?, ?, ?)", dummy_data)
+        conn.commit()
+    conn.close()
+
+def load_data_from_db():
+    """Fetches records from SQLite database and formats them into a DataFrame."""
+    conn = sqlite3.connect(DB_FILE)
+    query = "SELECT date AS Date, category AS Category, amount AS Amount, notes AS Notes FROM expenses"
+    df = pd.read_sql_query(query, conn)
+    conn.close()
+    
+    # Enforce precise data types for data processing engines
+    if not df.empty:
         df['Date'] = pd.to_datetime(df['Date'])
-    except Exception:
-        # Fallback dummy data for visual preview
-        df = pd.DataFrame([
-            {"Date": "2026-06-01", "Category": "Food", "Amount": 120.50, "Notes": "Groceries"},
-            {"Date": "2026-06-02", "Category": "Utilities", "Amount": 85.00, "Notes": "Electricity Bill"},
-            {"Date": "2026-06-15", "Category": "Entertainment", "Amount": 45.00, "Notes": "Movie Night"},
-            {"Date": "2026-06-20", "Category": "Transport", "Amount": 30.00, "Notes": "Fuel"}
-        ])
-        df['Date'] = pd.to_datetime(df['Date'])
+        df['Amount'] = pd.to_numeric(df['Amount'])
+    else:
+        df = pd.DataFrame(columns=["Date", "Category", "Amount", "Notes"])
     return df
 
-df = load_data()
+def insert_expense_to_db(date_str, cat, amt, note_str):
+    """Safely commits a single transaction log entry into the database table."""
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute(
+        "INSERT INTO expenses (date, category, amount, notes) VALUES (?, ?, ?, ?)",
+        (date_str, cat, amt, note_str)
+    )
+    conn.commit()
+    conn.close()
 
-# --- SIDEBAR: QUICK ACTION PORTAL ---
+# Initialize database schema components
+init_db()
+
+# --- SIDEBAR: TRANSACTION CONTROLLER ---
 with st.sidebar:
     st.title("➕ Add Transaction")
-    st.markdown("Enter details below to update your ledger instantly.")
+    st.markdown("Record a new dynamic expenditure entry below.")
     
-    with st.form("expense_form", clear_on_submit=True):
-        amount = st.number_input("Amount ($)", min_value=0.01, step=0.01, format="%.2f")
-        category = st.selectbox("Category", ["Food", "Utilities", "Transport", "Entertainment", "Housing", "Other"])
-        date = st.date_input("Transaction Date", datetime.now())
-        notes = st.text_input("Notes / Description")
+    # Using st.form keeps inputs isolated until submission
+    with st.form("transaction_entry_form", clear_on_submit=True):
+        input_amount = st.number_input("Amount ($)", min_value=0.01, step=0.01, format="%.2f")
+        input_category = st.selectbox("Category Allocation", ["Food", "Utilities", "Transport", "Entertainment", "Housing", "Other"])
+        input_date = st.date_input("Transaction Date", datetime.now())
+        input_notes = st.text_input("Memo / Description", placeholder="e.g., Walmart run")
         
-        submit = st.form_submit_button("Securely Record Entry")
-        if submit:
-            # Code to append to your expenses.csv goes here
-            st.toast(f"Success! Saved ${amount:.2f} under {category}", icon="✅")
+        submit_btn = st.form_submit_button("Securely Record Entry")
+        
+        if submit_btn:
+            # Convert date object to plain standard ISO string format for SQLite compatibility
+            formatted_date = input_date.strftime("%Y-%m-%d")
+            
+            # Write out to SQLite production environment
+            insert_expense_to_db(formatted_date, input_category, input_amount, input_notes)
+            
+            # System notification response banner
+            st.toast(f"Successfully recorded ${input_amount:.2f} to {input_category}!", icon="🚀")
+            
+            # CRITICAL: Forces Streamlit to instantly rerun script components, 
+            # ensuring immediate data fetching and seamless chart rendering updates.
+            st.rerun()
 
-# --- MAIN DASHBOARD INTERFACE ---
-st.title("📊 Financial Intelligence Dashboard")
-st.caption("Real-time monitoring of your liquid assets and structural spending trends.")
+# --- MAIN REAL-TIME DASHBOARD CORE ---
+st.title("📈 Real-Time Expense Analytics Dashboard")
+st.caption("Powered by an integrated SQLite storage matrix.")
 st.markdown("---")
 
-# 1. KPI Metric Ribbon
-total_spent = df['Amount'].sum()
-budget_limit = 1000.00
-remaining = budget_limit - total_spent
+# Pull fresh, up-to-the-second state dataset from SQL rows
+runtime_df = load_data_from_db()
 
-col1, col2, col3 = st.columns(3)
-with col1:
-    st.metric(label="Total Outflow", value=f"${total_spent:,.2f}", delta="-4.2% from last week", delta_color="inverse")
-with col2:
-    st.metric(label="Monthly Budget Allocated", value=f"${budget_limit:,.2f}")
-with col3:
-    st.metric(label="Remaining Liquidity", value=f"${remaining:,.2f}", delta=f"{ (remaining/budget_limit)*100 :.1f}% Safe")
+# 1. CORE PERFORMANCE METRICS
+monthly_budget_ceiling = 1200.00
+total_outflow = runtime_df["Amount"].sum() if not runtime_df.empty else 0.00
+remaining_balance = monthly_budget_ceiling - total_outflow
 
-st.markdown("### Metrics & Analytics")
-left_chart, right_table = st.columns([1, 1])
-
-# 2. Category Pie/Donut Chart
-with left_chart:
-    st.markdown("#### Outflow by Category")
-    fig = px.pie(df, values='Amount', names='Category', hole=0.4,
-                 color_discrete_sequence=px.colors.sequential.RdBu)
-    fig.update_layout(margin=dict(t=20, b=20, l=20, r=20), height=300)
-    st.plotly_chart(fig, use_container_width=True)
-
-# 3. Clean Modern Data Grid
-with right_table:
-    st.markdown("#### Transaction History Log")
-    # Formatting for a fabulous crisp presentation
-    display_df = df.copy()
-    display_df['Date'] = display_df['Date'].dt.strftime('%Y-%m-%d')
-    st.dataframe(
-        display_df.sort_values(by="Date", ascending=False),
-        column_config={
-            "Amount": st.column_config.NumberColumn("Amount", format="$ %.2f"),
-            "Category": st.column_config.TextColumn("Category"),
-            "Notes": st.column_config.TextColumn("Description")
-        },
-        use_container_width=True,
-        hide_index=True,
-        height=300
+kpi_col1, kpi_col2, kpi_col3 = st.columns(3)
+with kpi_col1:
+    st.metric(label="Total Aggregate Outflow", value=f"${total_outflow:,.2f}")
+with kpi_col2:
+    st.metric(label="System Monthly Cap", value=f"${monthly_budget_ceiling:,.2f}")
+with kpi_col3:
+    # Color indicators reflect positive or deficit margins dynamically
+    delta_indicator = f"${remaining_balance:,.2f} Left"
+    st.metric(
+        label="Liquid Allocation Runway", 
+        value=delta_indicator,
+        delta="Safe Zone" if remaining_balance >= 0 else "Budget Ceiling Overrun",
+        delta_color="normal" if remaining_balance >= 0 else "inverse"
     )
+
+st.markdown("<br>", unsafe_allow_html=True)
+
+# 2. DYNAMIC WORKSPACE SPLIT (Charts & Tables)
+layout_left_panel, layout_right_panel = st.columns([1, 1])
+
+with layout_left_panel:
+    st.subheader("📊 Category Distribution Vector")
+    if not runtime_df.empty:
+        # Group variables to create high density donut charts
+        grouped_df = runtime_df.groupby("Category")["Amount"].sum().reset_index()
+        donut_chart = px.pie(
+            grouped_df, 
+            values='Amount', 
+            names='Category', 
+            hole=0.45,
+            color_discrete_sequence=px.colors.qualitative.Safe
+        )
+        donut_chart.update_layout(
+            margin=dict(t=10, b=10, l=10, r=10),
+            legend=dict(orientation="h", yanchor="bottom", y=-0.1, xanchor="center", x=0.5)
+        )
+        st.plotly_chart(donut_chart, use_container_width=True)
+    else:
+        st.info("No transaction matrices populated. Add entries via sidebar to view graphics.")
+
+with layout_right_panel:
+    st.subheader("📋 Relational Database Log View")
+    if not runtime_df.empty:
+        # Sort values chronologically descending so new modifications flash right at the top
+        sorted_display_df = runtime_df.sort_values(by="Date", ascending=False).copy()
+        sorted_display_df['Date'] = sorted_display_df['Date'].dt.strftime('%Y-%m-%d')
+        
+        st.dataframe(
+            sorted_display_df,
+            column_config={
+                "Amount": st.column_config.NumberColumn("Amount ($)", format="$ %.2f"),
+                "Category": st.column_config.TextColumn("Classification"),
+                "Notes": st.column_config.TextColumn("Transaction Memo")
+            },
+            use_container_width=True,
+            hide_index=True,
+            height=340
+        )
+    else:
+        st.info("The SQLite expense schema currently holds zero structural logs.")
