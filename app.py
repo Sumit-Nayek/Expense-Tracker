@@ -266,7 +266,6 @@ from datetime import datetime
 # --- CONFIGURATION & VISUAL THEME ---
 st.set_page_config(page_title="FinTrack Enterprise", page_icon="💳", layout="wide")
 
-# AUTOMATIC SYSTEM MODE: Leveraging native Streamlit CSS variables
 st.markdown("""
     <style>
     div[data-testid="stMetric"] {
@@ -294,25 +293,15 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-DB_FILE = "expenses.db"
+# FIX: Bumping the file version bypasses the active file lock on Streamlit Cloud
+DB_FILE = "expenses_v2.db"
 CATEGORIES = ["Food", "Utilities", "Transport", "Entertainment", "Housing", "Other"]
 
 # --- DATABASE CONTROLLER OPERATORS ---
 def init_db():
-    """Initializes multi-tenant tables and auto-migrates old single-user schemas if detected."""
+    """Initializes multi-tenant tables natively on the fresh database version."""
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
-    
-    # --- AUTO-MIGRATION CHECK ---
-    # Inspect the current columns in the expenses table if it exists
-    cursor.execute("PRAGMA table_info(expenses)")
-    existing_columns = [col[1] for col in cursor.fetchall()]
-    
-    # If the table exists but doesn't have 'user_id', drop the legacy structure
-    if existing_columns and "user_id" not in existing_columns:
-        cursor.execute("DROP TABLE IF EXISTS expenses")
-        cursor.execute("DROP TABLE IF EXISTS budgets")
-        conn.commit()
     
     # 1. Users Table Schema
     cursor.execute("""
@@ -322,7 +311,7 @@ def init_db():
         )
     """)
     
-    # 2. Expenses Table Schema (Linked to User via Foreign Key)
+    # 2. Expenses Table Schema
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS expenses (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -335,7 +324,7 @@ def init_db():
         )
     """)
     
-    # 3. Budget Table Schema (Composite Key unique per User per Category)
+    # 3. Budget Table Schema
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS budgets (
             user_id INTEGER NOT NULL,
@@ -346,7 +335,7 @@ def init_db():
         )
     """)
     
-    # Seed default user profile if database is entirely empty
+    # Seed baseline user profile if database is entirely empty
     cursor.execute("SELECT COUNT(*) FROM users")
     if cursor.fetchone()[0] == 0:
         cursor.execute("INSERT INTO users (username) VALUES (?)", ("Primary Account",))
@@ -377,7 +366,6 @@ def create_new_user(username):
     try:
         cursor.execute("INSERT INTO users (username) VALUES (?)", (username,))
         new_id = cursor.lastrowid
-        # Automatically generate baseline starting budgets for the new profile
         default_budgets = [(new_id, cat, 200.00) for cat in CATEGORIES]
         cursor.executemany("INSERT INTO budgets (user_id, category, limit_amount) VALUES (?, ?, ?)", default_budgets)
         conn.commit()
@@ -419,7 +407,7 @@ def insert_expense_to_db(user_id, date_str, cat, amt, note_str):
     conn.commit()
     conn.close()
 
-# Initialize Database Pipeline Configuration
+# Start application lifecycle
 init_db()
 
 # --- SIDEBAR: USER AUTHENTICATION ROUTER ---
@@ -429,11 +417,9 @@ with st.sidebar:
     user_map = get_all_users()
     user_list = list(user_map.keys())
     
-    # User Profile Switcher Dropdown Menu
     selected_username = st.selectbox("Switch Active Profile", user_list)
     active_user_id = user_map[selected_username]
     
-    # Expandable Form Panel to Add a New Family Member/Client
     with st.expander("👤 Register New Profile"):
         new_user_input = st.text_input("Username", placeholder="e.g., Jane Doe").strip()
         if st.button("Create Account Profile"):
@@ -450,7 +436,6 @@ with st.sidebar:
     st.markdown("---")
     st.subheader("➕ Add Transaction")
     
-    # Pull contextual information mapped precisely to this specific user profile
     user_df = load_user_expenses(active_user_id)
     user_budgets = load_user_budgets(active_user_id)
     
@@ -465,7 +450,6 @@ with st.sidebar:
         if submit_btn:
             formatted_date = input_date.strftime("%Y-%m-%d")
             
-            # Isolated warning verification checks calculated strictly on active user profile
             current_cat_total = user_df[user_df["Category"] == input_category]["Amount"].sum() if not user_df.empty else 0.0
             new_cat_total = current_cat_total + input_amount
             cat_ceiling = user_budgets.get(input_category, 200.00)
@@ -488,7 +472,6 @@ with st.sidebar:
             st.toast("Transaction logged successfully!", icon="🚀")
             st.rerun()
 
-    # Expandable user isolated Target Configuration customizer drawer
     with st.expander("🎯 Customize Profile Budgets"):
         st.caption(f"Manage threshold caps for user: **{selected_username}**")
         for cat in CATEGORIES:
@@ -502,7 +485,6 @@ with st.sidebar:
 st.title("📈 Real-Time Expense Analytics Dashboard")
 st.subheader(f"Active Session: `{selected_username}`")
 
-# Render active warning notifications
 if "budget_alert" in st.session_state and st.session_state.budget_alert is not None:
     alert = st.session_state.budget_alert
     if alert["type"] == "error":
@@ -516,7 +498,7 @@ if "budget_alert" in st.session_state and st.session_state.budget_alert is not N
 
 st.markdown("---")
 
-# 1. PROFILE CONTEXT PERFORMANCE METRICS
+# 1. METRICS PRESENTATION
 monthly_budget_ceiling = sum(user_budgets.values())
 total_outflow = user_df["Amount"].sum() if not user_df.empty else 0.00
 remaining_balance = monthly_budget_ceiling - total_outflow
@@ -537,7 +519,7 @@ with kpi_col3:
 
 st.markdown("<br>", unsafe_allow_html=True)
 
-# 2. ISOLATED PROFILE METRIC PANELS
+# 2. DATA PANELS
 layout_left_panel, layout_right_panel = st.columns([1, 1])
 
 with layout_left_panel:
