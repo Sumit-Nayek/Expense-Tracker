@@ -1,5 +1,5 @@
 
-## 📌 Project Overview  
+## 🤑 Project Overview  
 The **Expense Tracker** application is a lightweight tool to help users record, categorize, and analyze their daily expenses. It provides functionality for adding expense entries, categorizing them (e.g., food, bills, travel), viewing summary reports, and tracking spending trends. The app emphasises core programming concepts data structures, control flow, modular design and demonstrates how they work together to create a functional application.
 
 ---
