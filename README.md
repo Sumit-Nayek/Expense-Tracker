@@ -9,7 +9,7 @@ The Expense Tracker application is a lightweight tool to help users record, cate
 ### 1. Data Structures  
 - **Lists / Arrays**: Used to hold individual expense entries perhaps in memory or as interim storage.  
 - **Dictionaries / Hash Maps**: Employed for categorizing expenses (category → list of entries) and for quick look-ups (e.g., totals per category).  
-- **Classes / Objects**: If an object-oriented approach is used, each expense record may be an instance of an `Expense` class with properties like `amount`, `date`, `category`, `notes`.  
+- **Classes / Objects**: If an object oriented approach is used, each expense record may be an instance of an `Expense` class with properties like `amount`, `date`, `category`, `notes`.  
 These data structures provide the backbone for storing, retrieving and aggregating expense data.
 
 ### 2. Control Flow & Logic  
