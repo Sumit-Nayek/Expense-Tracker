@@ -34,7 +34,7 @@ By separating concerns **data storage**, **business logic**, **UI/control flow**
 ### Data Structure Limitations  
 - Using simple lists/dictionaries in memory means all data is lost when the app stops or the device shuts down unless persistent storage (e.g., file, database) is added.  
 - Dictionaries keyed by category assume category names are consistent and do not change or duplicate (risk of typos/fuzzy matches).  
-- No indexed or time-series optimized structure: aggregations across date ranges may be slow if the number of entries grows large, since loops must traverse entire lists.
+- No indexed or timeseries optimized structure: aggregations across date ranges may be slow if the number of entries grows large, since loops must traverse entire lists.
 
 ### Control Flow / Logic Limitations  
 - Linear loops for aggregation (e.g., summing across all entries each time) may become inefficient when the dataset gets large (O(n) each time).  
